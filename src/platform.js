@@ -6,14 +6,23 @@ const PLUGIN_NAME = 'homebridge-tado-presence';
 const PLATFORM_NAME = 'TadoPresence';
 const TOKEN_FILE_NAME = 'tado-presence-tokens.json';
 
+// Security System state values. HomeKit has no way to rename a Switch's
+// On/Off states, but the Home app labels a security system's states
+// Home / Away / Night / Off, so the accessory uses that service purely
+// as the presentation for Tado's presence. STAY_ARM displays as "Home"
+// and AWAY_ARM displays as "Away".
+const STATE_HOME = 0; // SecuritySystem STAY_ARM -> "Home"
+const STATE_AWAY = 1; // SecuritySystem AWAY_ARM -> "Away"
+
 /**
- * A minimal platform that exposes exactly one HomeKit switch for the Tado
- * home's presence: On = HOME, Off = AWAY. It sets Tado's presence lock via
- * node-tado-client (PUT /homes/{id}/presenceLock), the same switch the Tado
- * app uses. No zones, no sensors, nothing else is added to HomeKit.
+ * A minimal platform that exposes exactly one HomeKit accessory for the
+ * Tado home's presence, with states that read Home and Away. It sets
+ * Tado's presence lock via node-tado-client (PUT /homes/{id}/presenceLock),
+ * the same Home/Away switch the Tado app uses. No zones, no sensors,
+ * nothing else is added to HomeKit.
  *
- * Authentication uses Tado's OAuth device flow (username/password logins no
- * longer exist). The refresh token is stored in the homebridge storage
+ * Authentication uses Tado's OAuth device flow (username/password logins
+ * no longer exist). The refresh token is stored in the homebridge storage
  * directory and re-saved every time Tado rotates it.
  */
 class TadoPresencePlatform {
@@ -24,7 +33,8 @@ class TadoPresencePlatform {
         this.accessories = [];
         this.homeId = null;
         this.isHome = null;
-        this.switchCharacteristic = null;
+        this.currentStateCharacteristic = null;
+        this.targetStateCharacteristic = null;
 
         this.name = this.config.name || 'Tado';
         this.homeName = this.config.homeName || null;
@@ -59,7 +69,7 @@ class TadoPresencePlatform {
 
     /**
      * Signs in to Tado (device flow, reusing the stored refresh token when
-     * possible), finds the home and sets up the switch.
+     * possible), finds the home and sets up the accessory.
      */
     async start() {
         const [verify, futureToken] = await this.client.authenticate(this.loadRefreshToken());
@@ -79,7 +89,7 @@ class TadoPresencePlatform {
             return;
         }
         this.homeId = home.id;
-        this.log('Tado presence switch ready for home "' + home.name + '" (ID ' + home.id + ').');
+        this.log('Tado presence control ready for home "' + home.name + '" (ID ' + home.id + ').');
 
         this.setupAccessory(home);
         await this.refreshState();
@@ -92,8 +102,20 @@ class TadoPresencePlatform {
     }
 
     /**
-     * Creates (or restores) the single switch accessory and wires up its
-     * On characteristic: On = HOME, Off = AWAY.
+     * Maps the tracked presence onto a Security System state value.
+     */
+    presenceToState() {
+        return this.isHome ? STATE_HOME : STATE_AWAY;
+    }
+
+    /**
+     * Creates (or restores) the single accessory and wires up its state
+     * characteristics. Accessories created by v1.0.0 carried a Switch
+     * service; it is removed so the accessory keeps its identity (room,
+     * favourites) while its states become Home and Away.
+     *
+     * State mapping: Home (stay) -> HOME presence; Away -> AWAY presence;
+     * Night -> AWAY presence; Off (disarm) -> HOME presence.
      */
     setupAccessory(home) {
         const { Service, Characteristic } = this.api.hap;
@@ -109,20 +131,32 @@ class TadoPresencePlatform {
 
         const info = accessory.getService(Service.AccessoryInformation) || accessory.addService(Service.AccessoryInformation);
         info.setCharacteristic(Characteristic.Manufacturer, 'tado°');
-        info.setCharacteristic(Characteristic.Model, 'Home/Away Presence Switch');
+        info.setCharacteristic(Characteristic.Model, 'Home/Away Presence');
 
-        const service = accessory.getService(Service.Switch) || accessory.addService(Service.Switch, this.name);
-        this.switchCharacteristic = service.getCharacteristic(Characteristic.On);
+        const staleSwitch = accessory.getService(Service.Switch);
+        if (staleSwitch) {
+            accessory.removeService(staleSwitch);
+            this.log('Replaced the old On/Off switch with the Home/Away control.');
+        }
 
-        this.switchCharacteristic.onGet(() => {
-            return this.isHome === true;
+        const service = accessory.getService(Service.SecuritySystem) || accessory.addService(Service.SecuritySystem, this.name);
+        this.currentStateCharacteristic = service.getCharacteristic(Characteristic.SecuritySystemCurrentState);
+        this.targetStateCharacteristic = service.getCharacteristic(Characteristic.SecuritySystemTargetState);
+
+        this.currentStateCharacteristic.onGet(() => {
+            return this.presenceToState();
         });
 
-        this.switchCharacteristic.onSet(async (value) => {
-            const presence = value ? 'HOME' : 'AWAY';
+        this.targetStateCharacteristic.onGet(() => {
+            return this.presenceToState();
+        });
+
+        this.targetStateCharacteristic.onSet(async (value) => {
+            const presence = (value === STATE_HOME || value === 3) ? 'HOME' : 'AWAY';
             try {
                 await this.client.setPresence(this.homeId, presence);
-                this.isHome = !!value;
+                this.isHome = presence === 'HOME';
+                this.currentStateCharacteristic.updateValue(this.presenceToState());
                 this.log('Tado presence set to ' + presence + '.');
             } catch (e) {
                 this.log('Failed to set Tado presence to ' + presence + ': ' + e.message);
@@ -132,7 +166,7 @@ class TadoPresencePlatform {
     }
 
     /**
-     * Reads the current presence from Tado and updates the switch.
+     * Reads the current presence from Tado and updates the accessory.
      */
     async refreshState() {
         if (!this.homeId) {
@@ -142,8 +176,12 @@ class TadoPresencePlatform {
         const isHome = state.presence === 'HOME';
         if (isHome !== this.isHome) {
             this.isHome = isHome;
-            if (this.switchCharacteristic) {
-                this.switchCharacteristic.updateValue(isHome);
+            const value = this.presenceToState();
+            if (this.currentStateCharacteristic) {
+                this.currentStateCharacteristic.updateValue(value);
+            }
+            if (this.targetStateCharacteristic) {
+                this.targetStateCharacteristic.updateValue(value);
             }
         }
     }

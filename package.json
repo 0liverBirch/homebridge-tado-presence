@@ -1,7 +1,7 @@
 {
   "name": "homebridge-tado-presence",
-  "version": "1.0.0",
-  "description": "A single HomeKit switch for Tado Home/Away presence (presence lock). Nothing else.",
+  "version": "1.1.0",
+  "description": "A single HomeKit control for Tado Home/Away presence, with states that read Home and Away (presence lock). Nothing else.",
   "license": "MIT",
   "author": "Oliver Birch",
   "repository": {
