@@ -2,8 +2,12 @@
 
 A Homebridge plugin that adds a single control to HomeKit for your Tado home's presence, with states that read **Home** and **Away**.
 
-- **Home:** Tado **Home** mode. Your heating follows its schedule.
-- **Away:** Tado **Away** mode. Your zones follow their away settings.
+| State in the Home app | What it does |
+| --- | --- |
+| **Home** | Locks Tado to **Home** mode. Your heating follows its schedule. |
+| **Away** | Locks Tado to **Away** mode. Your zones follow their away settings. |
+| **Night** | The same as Away. |
+| **Off** | Removes the lock (**Auto**). Tado decides presence itself. |
 
 That is all it does. It does not add room thermostats, occupancy sensors, or hot water switches to HomeKit.
 
@@ -15,9 +19,9 @@ Tado's automatic geofencing (Auto-Assist) needs a paid subscription. Without one
 
 ## How it works
 
-The plugin sets Tado's presence lock, the mechanism behind the Home/Away switch in the Tado app (`PUT /homes/{homeId}/presenceLock`), using the [`node-tado-client`](https://github.com/mattdavis90/node-tado-client) library. Because it uses the presence lock rather than per-room overrides, switching back to Home simply resumes your schedule, with no leftover manual overrides to clear.
+The plugin works through Tado's presence lock, the mechanism behind the Home/Away switch in the Tado app, using the [`node-tado-client`](https://github.com/mattdavis90/node-tado-client) library. Home, Away and Night set the lock (`PUT /homes/{homeId}/presenceLock`); Off deletes it (`DELETE /homes/{homeId}/presenceLock`), which is Tado's Auto. Because it uses the presence lock rather than per-room overrides, switching back to Home simply resumes your schedule, with no leftover manual overrides to clear.
 
-It also reads the current state back from Tado regularly (every 60 seconds by default), so if presence is changed in the Tado app, the control in HomeKit follows.
+It also reads the current state back from Tado regularly (every 60 seconds by default), including whether the lock is set. If presence or the lock is changed in the Tado app, the control in HomeKit follows at the next refresh.
 
 ## Requirements
 
@@ -87,6 +91,7 @@ To sign in with a different Tado account, delete the token file and restart Home
 - **The sign-in code has expired.** Device codes are only valid for a few minutes. Restart Homebridge to get a new link.
 - **"Tado home not found" in the log.** The `homeName` in your config does not match a home on the account. Check the spelling against the Tado app, or remove `homeName` to use the account's first home.
 - **The control controls the wrong home.** Your account has more than one home. Set `homeName` to the one you want, exactly as it appears in the Tado app.
+- **The control shows Off.** That is not an error. It means no presence lock is set, so Tado is deciding presence itself (Auto). Set Home or Away to lock it again.
 - **The control shows the wrong state.** It refreshes from Tado every `pollSeconds`. Changes made in HomeKit apply straight away; changes made in the Tado app appear at the next refresh.
 - **You are asked to sign in again after every restart.** The token file could not be written. Check that the Homebridge storage folder is writable by the user Homebridge runs as.
 
