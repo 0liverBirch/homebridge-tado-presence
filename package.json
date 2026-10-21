@@ -1,0 +1,21 @@
+{
+  "name": "homebridge-tado-presence",
+  "version": "1.0.0",
+  "description": "A single HomeKit switch for Tado Home/Away presence (presence lock). Nothing else.",
+  "license": "MIT",
+  "main": "index.js",
+  "keywords": [
+    "homebridge-plugin",
+    "homebridge",
+    "tado",
+    "presence",
+    "homekit"
+  ],
+  "engines": {
+    "node": ">=18.0.0",
+    "homebridge": ">=1.6.0"
+  },
+  "dependencies": {
+    "node-tado-client": "^1.1.1"
+  }
+}
