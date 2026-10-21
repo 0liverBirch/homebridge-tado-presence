@@ -7,7 +7,7 @@ A Homebridge plugin that adds a single control to HomeKit for your Tado home's p
 
 That is all it does. It does not add room thermostats, occupancy sensors, or hot water switches to HomeKit.
 
-Why does it look like a security system? HomeKit does not let a switch rename its On/Off states. A security system is the one accessory type whose states the Home app labels Home, Away, Night and Off, so the control is presented that way purely for the labels. It is not an alarm and it cannot trigger. Choosing **Night** also sets Away, and choosing **Off** sets Home.
+Why does it look like a security system? HomeKit does not let a switch rename its On/Off states. A security system is the one accessory type whose states the Home app labels Home, Away, Night and Off, so the control is presented that way purely for the labels. It is not an alarm and it cannot trigger. Choosing **Night** also sets Away. Choosing **Off** removes the presence lock entirely (Auto) and hands presence back to Tado; the control reads Off for as long as the house stays unlocked.
 
 ## Why
 
@@ -93,6 +93,7 @@ To sign in with a different Tado account, delete the token file and restart Home
 ## Notes and limitations
 
 - The presence lock holds until something changes it, exactly like tapping Home or Away in the Tado app. If someone changes presence in the app, the HomeKit control follows at the next refresh.
+- **Off means Auto.** With the lock removed, Tado decides presence. On the free plan that means Tado's own detection and its reminders, rather than automatic switching. If anything locks the presence again, including a tap in the Tado app, the control goes back to showing Home or Away at the next refresh.
 - One control per installation, controlling one Tado home. It appears with the security accessories in the Home app, because that is the only accessory type with Home and Away state labels. Most households have a single home; `homeName` exists for accounts that have several.
 
 ## Credits

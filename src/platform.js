@@ -9,10 +9,17 @@ const TOKEN_FILE_NAME = 'tado-presence-tokens.json';
 // Security System state values. HomeKit has no way to rename a Switch's
 // On/Off states, but the Home app labels a security system's states
 // Home / Away / Night / Off, so the accessory uses that service purely
-// as the presentation for Tado's presence. STAY_ARM displays as "Home"
-// and AWAY_ARM displays as "Away".
-const STATE_HOME = 0; // SecuritySystem STAY_ARM -> "Home"
-const STATE_AWAY = 1; // SecuritySystem AWAY_ARM -> "Away"
+// as the presentation for Tado's presence:
+//   STAY_ARM   displays as "Home" -> presence locked to HOME
+//   AWAY_ARM   displays as "Away" -> presence locked to AWAY
+//   NIGHT_ARM  displays as "Night" -> presence locked to AWAY
+//   DISARMED   displays as "Off"   -> presence lock removed (Auto)
+// The displayed state reads "Off" whenever the lock is off, and Home or
+// Away whenever it is locked.
+const STATE_HOME = 0;
+const STATE_AWAY = 1;
+const STATE_NIGHT = 2;
+const STATE_OFF = 3;
 
 /**
  * A minimal platform that exposes exactly one HomeKit accessory for the
@@ -33,6 +40,7 @@ class TadoPresencePlatform {
         this.accessories = [];
         this.homeId = null;
         this.isHome = null;
+        this.isLocked = null;
         this.currentStateCharacteristic = null;
         this.targetStateCharacteristic = null;
 
@@ -102,9 +110,13 @@ class TadoPresencePlatform {
     }
 
     /**
-     * Maps the tracked presence onto a Security System state value.
+     * Maps the tracked presence and lock onto a Security System state
+     * value: unlocked reads "Off" (Auto); locked reads "Home" or "Away".
      */
-    presenceToState() {
+    displayState() {
+        if (!this.isLocked) {
+            return STATE_OFF;
+        }
         return this.isHome ? STATE_HOME : STATE_AWAY;
     }
 
@@ -114,8 +126,9 @@ class TadoPresencePlatform {
      * service; it is removed so the accessory keeps its identity (room,
      * favourites) while its states become Home and Away.
      *
-     * State mapping: Home (stay) -> HOME presence; Away -> AWAY presence;
-     * Night -> AWAY presence; Off (disarm) -> HOME presence.
+     * State mapping: Home -> lock to HOME; Away -> lock to AWAY;
+     * Night -> lock to AWAY; Off -> remove the lock (Auto), handing
+     * presence back to Tado.
      */
     setupAccessory(home) {
         const { Service, Characteristic } = this.api.hap;
@@ -144,20 +157,28 @@ class TadoPresencePlatform {
         this.targetStateCharacteristic = service.getCharacteristic(Characteristic.SecuritySystemTargetState);
 
         this.currentStateCharacteristic.onGet(() => {
-            return this.presenceToState();
+            return this.displayState();
         });
 
         this.targetStateCharacteristic.onGet(() => {
-            return this.presenceToState();
+            return this.displayState();
         });
 
         this.targetStateCharacteristic.onSet(async (value) => {
-            const presence = (value === STATE_HOME || value === 3) ? 'HOME' : 'AWAY';
+            const presence = value === STATE_HOME ? 'HOME' : (value === STATE_OFF ? 'AUTO' : 'AWAY');
             try {
                 await this.client.setPresence(this.homeId, presence);
-                this.isHome = presence === 'HOME';
-                this.currentStateCharacteristic.updateValue(this.presenceToState());
-                this.log('Tado presence set to ' + presence + '.');
+                if (presence === 'AUTO') {
+                    this.isLocked = false;
+                    this.log('Tado presence lock removed (Auto). Tado decides now.');
+                } else {
+                    this.isLocked = true;
+                    this.isHome = presence === 'HOME';
+                    this.log('Tado presence set to ' + presence + '.');
+                }
+                const display = this.displayState();
+                this.currentStateCharacteristic.updateValue(display);
+                this.targetStateCharacteristic.updateValue(display);
             } catch (e) {
                 this.log('Failed to set Tado presence to ' + presence + ': ' + e.message);
                 throw e;
@@ -166,7 +187,8 @@ class TadoPresencePlatform {
     }
 
     /**
-     * Reads the current presence from Tado and updates the accessory.
+     * Reads the current presence and lock from Tado and updates the
+     * accessory when either has changed.
      */
     async refreshState() {
         if (!this.homeId) {
@@ -174,9 +196,11 @@ class TadoPresencePlatform {
         }
         const state = await this.client.getState(this.homeId);
         const isHome = state.presence === 'HOME';
-        if (isHome !== this.isHome) {
+        const isLocked = state.presenceLocked === true;
+        if (isHome !== this.isHome || isLocked !== this.isLocked) {
             this.isHome = isHome;
-            const value = this.presenceToState();
+            this.isLocked = isLocked;
+            const value = this.displayState();
             if (this.currentStateCharacteristic) {
                 this.currentStateCharacteristic.updateValue(value);
             }

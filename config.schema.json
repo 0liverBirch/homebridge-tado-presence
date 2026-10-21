@@ -2,7 +2,7 @@
     "pluginAlias": "TadoPresence",
     "pluginType": "platform",
     "singular": true,
-    "headerDisplay": "Adds exactly one accessory to HomeKit for Tado presence, shown as a security system so its states read Home and Away: Home = Tado Home mode, Away = Tado Away mode. Choosing Night also sets Away, and Off sets Home. On the first start the plugin prints a Tado sign-in link to the Homebridge log; open it in a browser and approve. The session is stored and renewed automatically.",
+    "headerDisplay": "Adds exactly one accessory to HomeKit for Tado presence, shown as a security system so its states read Home and Away: Home = Tado Home mode, Away = Tado Away mode. Choosing Night also sets Away. Choosing Off removes the presence lock (Auto) and hands presence back to Tado. On the first start the plugin prints a Tado sign-in link to the Homebridge log; open it in a browser and approve. The session is stored and renewed automatically.",
     "footerDisplay": "The control sets Tado's presence lock, the same Home/Away switch as in the Tado app. It is not an alarm.",
     "schema": {
         "type": "object",
