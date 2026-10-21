@@ -18,7 +18,7 @@
                 "title": "Tado Home Name",
                 "type": "string",
                 "required": false,
-                "placeholder": "Bluebell Hollow",
+                "placeholder": "e.g. My Home",
                 "description": "The name of the Tado home, exactly as in the Tado app. Optional: if empty, the first home of the account is used."
             },
             "pollSeconds": {

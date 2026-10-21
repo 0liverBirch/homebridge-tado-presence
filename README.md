@@ -1,52 +1,102 @@
 # homebridge-tado-presence
 
-One switch in HomeKit for your Tado home's presence. Nothing else.
+A Homebridge plugin that adds a single switch to HomeKit for your Tado home's presence.
 
-- **On** = Tado **Home** mode (schedule runs)
-- **Off** = Tado **Away** mode (zones follow their away settings)
+- **Switch on:** Tado **Home** mode. Your heating follows its schedule.
+- **Switch off:** Tado **Away** mode. Your zones follow their away settings.
 
-The switch sets Tado's *presence lock* (`PUT /homes/{id}/presenceLock`), the exact same Home/Away switch the Tado app uses, via [`node-tado-client`](https://github.com/mattdavis90/node-tado-client). No room thermostats, no occupancy sensors, no hot water switches are added to HomeKit.
+That is all it does. It does not add room thermostats, occupancy sensors, or hot water switches to HomeKit.
 
-Built for the simple case: flip presence from the Home app, a scene, or a "when I leave / arrive" automation, without a Tado Auto-Assist subscription.
+## Why
+
+Tado's automatic geofencing (Auto-Assist) needs a paid subscription. Without one, the Home/Away switch in the Tado app is manual only. This plugin puts that same switch in HomeKit, so you can flip it from the Home app, include it in a scene, ask Siri, or drive it with HomeKit automations such as "when the last person leaves home" and "when the first person arrives home".
+
+## How it works
+
+The plugin sets Tado's presence lock, the mechanism behind the Home/Away switch in the Tado app (`PUT /homes/{homeId}/presenceLock`), using the [`node-tado-client`](https://github.com/mattdavis90/node-tado-client) library. Because it uses the presence lock rather than per-room overrides, switching back to Home simply resumes your schedule, with no leftover manual overrides to clear.
+
+It also reads the current state back from Tado regularly (every 60 seconds by default), so if presence is changed in the Tado app, the switch in HomeKit follows.
+
+## Requirements
+
+- Homebridge 1.6 or later
+- Node.js 18 or later
+- A Tado account with at least one Tado home
 
 ## Installation
+
+From a terminal on the machine running Homebridge:
 
 ```bash
 npm install -g git+https://github.com/0liverBirch/homebridge-tado-presence.git
 ```
 
-(or use the Homebridge UI's install-by-GitHub-URL), then restart Homebridge.
+Then add the configuration below and restart Homebridge.
 
 ## Configuration
 
+Add a platform block to the `platforms` section of your Homebridge config:
+
 ```json
 {
-    "platforms": [
-        {
-            "platform": "TadoPresence",
-            "name": "Tado",
-            "homeName": "Bluebell Hollow"
-        }
-    ]
+    "platform": "TadoPresence",
+    "name": "Tado",
+    "homeName": "My Home"
 }
 ```
 
-- `name`: the switch's name in HomeKit.
-- `homeName`: optional; the Tado home to control, exactly as named in the Tado app. If omitted, the account's first home is used.
-- `pollSeconds`: optional, default 60. How often the switch state is refreshed from Tado (so changes made in the Tado app appear in HomeKit).
+The settings are also available in the Homebridge UI, under the plugin's settings.
 
-## Sign-in
+| Option | Required | Default | Description |
+| --- | --- | --- | --- |
+| `platform` | Yes | | Must be `TadoPresence`. |
+| `name` | Yes | `Tado` | The name of the switch in HomeKit. |
+| `homeName` | No | First home on the account | The Tado home to control, exactly as named in the Tado app. Only needed if your account has more than one home. |
+| `pollSeconds` | No | `60` | How often the switch state is refreshed from Tado. |
 
-Tado no longer accepts username/password logins. On the first start, the plugin prints a sign-in link to the Homebridge log:
+## Signing in to Tado
 
-```
-Tado sign-in required: open the following link in a browser and approve access:
-https://login.tado.com/oauth2/device?user_code=XXXXXX
-```
+Tado no longer accepts username and password sign-ins from third-party apps. Sign-in uses a device code instead, much like signing in to a streaming service on a TV.
 
-Open it, sign in, approve. The plugin continues on its own. The session's refresh token is stored in `tado-presence-tokens.json` in the Homebridge storage directory (mode 0600) and renewed automatically; Tado rotates it on every use and the new one is saved each time. To sign in as a different account, delete that file and restart Homebridge.
+1. Install and configure the plugin, then restart Homebridge.
+2. Open the Homebridge log. On the first start you will see a message like:
 
-## Good to know
+   ```
+   Tado sign-in required: open the following link in a browser and approve access:
+   https://login.tado.com/oauth2/device?user_code=XXXXXX
+   ```
 
-- The presence lock holds until something changes it, exactly like tapping Home/Away in the Tado app's Geofencing screen.
-- Pair it with HomeKit automations: "When I leave home" → switch off; "When I arrive home" → switch on.
+3. Open the link, sign in to Tado, and approve access.
+4. The plugin continues on its own, and the switch appears in HomeKit a few seconds later.
+
+The plugin stores a refresh token in a file named `tado-presence-tokens.json` in your Homebridge storage folder (for a standard install that is `/var/lib/homebridge`). The file is created with permissions so only its owner can read it. Tado issues a new refresh token on every use, and the plugin saves the new one each time, so you should not need to sign in again.
+
+To sign in with a different Tado account, delete the token file and restart Homebridge. You will get a fresh sign-in link.
+
+## Usage ideas
+
+- Build two HomeKit automations: "When the last person leaves home" turns the switch off, "When the first person arrives home" turns it on. That gives you geofenced heating without an Auto-Assist subscription.
+- Add the switch to a "Leaving" scene.
+- Ask Siri to turn the "Tado" switch on or off.
+
+## Troubleshooting
+
+- **No sign-in link in the log.** Make sure the plugin is installed and the platform block is in your config, then restart Homebridge. The link is only printed when there is no valid stored token.
+- **The sign-in code has expired.** Device codes are only valid for a few minutes. Restart Homebridge to get a new link.
+- **"Tado home not found" in the log.** The `homeName` in your config does not match a home on the account. Check the spelling against the Tado app, or remove `homeName` to use the account's first home.
+- **The switch controls the wrong home.** Your account has more than one home. Set `homeName` to the one you want, exactly as it appears in the Tado app.
+- **The switch shows the wrong state.** It refreshes from Tado every `pollSeconds`. Changes made in HomeKit apply straight away; changes made in the Tado app appear at the next refresh.
+- **You are asked to sign in again after every restart.** The token file could not be written. Check that the Homebridge storage folder is writable by the user Homebridge runs as.
+
+## Notes and limitations
+
+- The presence lock holds until something changes it, exactly like tapping Home or Away in the Tado app. If someone changes presence in the app, the HomeKit switch follows at the next refresh.
+- One switch per installation, controlling one Tado home. Most households have a single home; `homeName` exists for accounts that have several.
+
+## Credits
+
+Built on [`node-tado-client`](https://github.com/mattdavis90/node-tado-client) by Matt Davis.
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).

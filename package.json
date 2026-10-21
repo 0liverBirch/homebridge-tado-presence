@@ -3,6 +3,15 @@
   "version": "1.0.0",
   "description": "A single HomeKit switch for Tado Home/Away presence (presence lock). Nothing else.",
   "license": "MIT",
+  "author": "Oliver Birch",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0liverBirch/homebridge-tado-presence.git"
+  },
+  "homepage": "https://github.com/0liverBirch/homebridge-tado-presence#readme",
+  "bugs": {
+    "url": "https://github.com/0liverBirch/homebridge-tado-presence/issues"
+  },
   "main": "index.js",
   "keywords": [
     "homebridge-plugin",
