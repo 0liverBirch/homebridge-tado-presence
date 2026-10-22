@@ -6,27 +6,22 @@ const PLUGIN_NAME = 'homebridge-tado-presence';
 const PLATFORM_NAME = 'TadoPresence';
 const TOKEN_FILE_NAME = 'tado-presence-tokens.json';
 
-// Security System state values. HomeKit has no way to rename a Switch's
-// On/Off states, but the Home app labels a security system's states
-// Home / Away / Night / Off, so the accessory uses that service purely
-// as the presentation for Tado's presence:
-//   STAY_ARM   displays as "Home" -> presence locked to HOME
-//   AWAY_ARM   displays as "Away" -> presence locked to AWAY
-//   NIGHT_ARM  displays as "Night" -> presence locked to AWAY
-//   DISARMED   displays as "Off"   -> presence lock removed (Auto)
-// The displayed state reads "Off" whenever the lock is off, and Home or
-// Away whenever it is locked.
-const STATE_HOME = 0;
-const STATE_AWAY = 1;
-const STATE_NIGHT = 2;
-const STATE_OFF = 3;
-
 /**
  * A minimal platform that exposes exactly one HomeKit accessory for the
- * Tado home's presence, with states that read Home and Away. It sets
- * Tado's presence lock via node-tado-client (PUT /homes/{id}/presenceLock),
+ * Tado home's presence: a plain switch. On means Home (presence locked
+ * to HOME); Off means Away (presence locked to AWAY). It sets Tado's
+ * presence lock via node-tado-client (PUT /homes/{id}/presenceLock),
  * the same Home/Away switch the Tado app uses. No zones, no sensors,
  * nothing else is added to HomeKit.
+ *
+ * Why a switch and not a security system (which the Home app labels
+ * Home / Away)? Because HomeKit treats a security system as a security
+ * device: any automation that sets it demands confirmation before it
+ * runs, which makes geofencing automations ("when the last person
+ * leaves") useless. A switch runs in automations unattended. The price
+ * is that the switch's states are labelled On and Off, and there is no
+ * third state for Auto: if the presence lock is removed in the Tado
+ * app, the switch simply shows the current presence (On if Home).
  *
  * Authentication uses Tado's OAuth device flow (username/password logins
  * no longer exist). The refresh token is stored in the homebridge storage
@@ -41,8 +36,7 @@ class TadoPresencePlatform {
         this.homeId = null;
         this.isHome = null;
         this.isLocked = null;
-        this.currentStateCharacteristic = null;
-        this.targetStateCharacteristic = null;
+        this.onCharacteristic = null;
 
         this.name = this.config.name || 'Tado';
         this.homeName = this.config.homeName || null;
@@ -110,25 +104,23 @@ class TadoPresencePlatform {
     }
 
     /**
-     * Maps the tracked presence and lock onto a Security System state
-     * value: unlocked reads "Off" (Auto); locked reads "Home" or "Away".
+     * The switch value for the tracked presence: On when Home, Off when
+     * Away, whether or not the presence lock is set.
      */
-    displayState() {
-        if (!this.isLocked) {
-            return STATE_OFF;
-        }
-        return this.isHome ? STATE_HOME : STATE_AWAY;
+    switchValue() {
+        return this.isHome === true;
     }
 
     /**
-     * Creates (or restores) the single accessory and wires up its state
-     * characteristics. Accessories created by v1.0.0 carried a Switch
-     * service; it is removed so the accessory keeps its identity (room,
-     * favourites) while its states become Home and Away.
+     * Creates (or restores) the single accessory and wires up its switch.
+     * The accessory keeps the same UUID it has always had, so it keeps
+     * its identity (room, favourites) across versions. Accessories from
+     * v1.1-1.2 carried a Security System service; it is removed and the
+     * Switch put back, because HomeKit will not run an automation that
+     * sets a security system without confirmation.
      *
-     * State mapping: Home -> lock to HOME; Away -> lock to AWAY;
-     * Night -> lock to AWAY; Off -> remove the lock (Auto), handing
-     * presence back to Tado.
+     * State mapping: switch On -> lock presence to HOME; switch Off ->
+     * lock presence to AWAY.
      */
     setupAccessory(home) {
         const { Service, Characteristic } = this.api.hap;
@@ -146,39 +138,27 @@ class TadoPresencePlatform {
         info.setCharacteristic(Characteristic.Manufacturer, 'tado°');
         info.setCharacteristic(Characteristic.Model, 'Home/Away Presence');
 
-        const staleSwitch = accessory.getService(Service.Switch);
-        if (staleSwitch) {
-            accessory.removeService(staleSwitch);
-            this.log('Replaced the old On/Off switch with the Home/Away control.');
+        const staleSecuritySystem = accessory.getService(Service.SecuritySystem);
+        if (staleSecuritySystem) {
+            accessory.removeService(staleSecuritySystem);
+            this.log('Replaced the security system control with a plain switch, so automations run without confirmation.');
         }
 
-        const service = accessory.getService(Service.SecuritySystem) || accessory.addService(Service.SecuritySystem, this.name);
-        this.currentStateCharacteristic = service.getCharacteristic(Characteristic.SecuritySystemCurrentState);
-        this.targetStateCharacteristic = service.getCharacteristic(Characteristic.SecuritySystemTargetState);
+        const service = accessory.getService(Service.Switch) || accessory.addService(Service.Switch, this.name);
+        this.onCharacteristic = service.getCharacteristic(Characteristic.On);
 
-        this.currentStateCharacteristic.onGet(() => {
-            return this.displayState();
+        this.onCharacteristic.onGet(() => {
+            return this.switchValue();
         });
 
-        this.targetStateCharacteristic.onGet(() => {
-            return this.displayState();
-        });
-
-        this.targetStateCharacteristic.onSet(async (value) => {
-            const presence = value === STATE_HOME ? 'HOME' : (value === STATE_OFF ? 'AUTO' : 'AWAY');
+        this.onCharacteristic.onSet(async (value) => {
+            const presence = value ? 'HOME' : 'AWAY';
             try {
                 await this.client.setPresence(this.homeId, presence);
-                if (presence === 'AUTO') {
-                    this.isLocked = false;
-                    this.log('Tado presence lock removed (Auto). Tado decides now.');
-                } else {
-                    this.isLocked = true;
-                    this.isHome = presence === 'HOME';
-                    this.log('Tado presence set to ' + presence + '.');
-                }
-                const display = this.displayState();
-                this.currentStateCharacteristic.updateValue(display);
-                this.targetStateCharacteristic.updateValue(display);
+                this.isLocked = true;
+                this.isHome = presence === 'HOME';
+                this.log('Tado presence set to ' + presence + '.');
+                this.onCharacteristic.updateValue(this.switchValue());
             } catch (e) {
                 this.log('Failed to set Tado presence to ' + presence + ': ' + e.message);
                 throw e;
@@ -200,12 +180,8 @@ class TadoPresencePlatform {
         if (isHome !== this.isHome || isLocked !== this.isLocked) {
             this.isHome = isHome;
             this.isLocked = isLocked;
-            const value = this.displayState();
-            if (this.currentStateCharacteristic) {
-                this.currentStateCharacteristic.updateValue(value);
-            }
-            if (this.targetStateCharacteristic) {
-                this.targetStateCharacteristic.updateValue(value);
+            if (this.onCharacteristic) {
+                this.onCharacteristic.updateValue(this.switchValue());
             }
         }
     }
