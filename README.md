@@ -58,7 +58,6 @@ The settings are also available in the Homebridge UI, under the plugin's setting
 | `platform` | Yes | | Must be `TadoPresence`. |
 | `name` | Yes | `Tado` | The name of the control in HomeKit. |
 | `homeName` | No | First home on the account | The Tado home to control, exactly as named in the Tado app. Only needed if your account has more than one home. |
-| `pollSeconds` | No | `60` | How often the state is refreshed from Tado. |
 
 ## Signing in to Tado
 
@@ -91,12 +90,12 @@ To sign in with a different Tado account, delete the token file and restart Home
 - **The sign-in code has expired.** Device codes are only valid for a few minutes. Restart Homebridge to get a new link.
 - **"Tado home not found" in the log.** The `homeName` in your config does not match a home on the account. Check the spelling against the Tado app, or remove `homeName` to use the account's first home.
 - **The control controls the wrong home.** Your account has more than one home. Set `homeName` to the one you want, exactly as it appears in the Tado app.
-- **The switch shows the wrong state.** It refreshes from Tado every `pollSeconds`. Changes made in HomeKit apply straight away; changes made in the Tado app appear at the next refresh. The switch shows presence itself, so if the presence lock was removed in the Tado app (Auto), the switch still shows On for Home or Off for Away as Tado reports it.
+- **The switch shows the wrong state.** The switch no longer refreshes from Tado: its state is whatever HomeKit last set, which is correct as long as the switch is the only thing setting presence. Changes made in the Tado app will not show up in HomeKit, so flip the switch to bring Tado back in line.
 - **You are asked to sign in again after every restart.** The token file could not be written. Check that the Homebridge storage folder is writable by the user Homebridge runs as.
 
 ## Notes and limitations
 
-- The presence lock holds until something changes it, exactly like tapping Home or Away in the Tado app. If someone changes presence in the app, the HomeKit switch follows at the next refresh.
+- The presence lock holds until something changes it, exactly like tapping Home or Away in the Tado app. The switch is the source of truth: if someone changes presence in the Tado app, the HomeKit switch will not follow it, so flip the switch to bring Tado back in line.
 - **There is no Auto state.** A switch has two states, so Auto (no presence lock) is not offered. If you remove the lock in the Tado app, the switch keeps showing the current presence, and the next time the switch is flipped it locks presence again.
 - One switch per installation, controlling one Tado home. Most households have a single home; `homeName` exists for accounts that have several.
 
