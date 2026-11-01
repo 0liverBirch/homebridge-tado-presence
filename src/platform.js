@@ -40,7 +40,6 @@ class TadoPresencePlatform {
 
         this.name = this.config.name || 'Tado';
         this.homeName = this.config.homeName || null;
-        this.pollSeconds = this.config.pollSeconds || 60;
 
         if (!api) {
             this.log('Homebridge API not available, please update your homebridge version!');
@@ -94,13 +93,18 @@ class TadoPresencePlatform {
         this.log('Tado presence control ready for home "' + home.name + '" (ID ' + home.id + ').');
 
         this.setupAccessory(home);
-        await this.refreshState();
-
-        setInterval(() => {
-            this.refreshState().catch((e) => {
-                this.log.debug('Presence poll failed: ' + e.message);
-            });
-        }, this.pollSeconds * 1000);
+        // One read on load, and nothing after that: the switch is the
+        // only thing that sets presence, so there is nothing to poll for.
+        // This read is deliberately non-fatal: if Tado is rate-limiting
+        // (HTTP 429) the plugin still starts and the switch still works,
+        // and the state corrects itself the next time the switch flips.
+        // Polling every minute burned through Tado's 100-call daily quota
+        // and throttled the account for the rest of the day.
+        try {
+            await this.refreshState();
+        } catch (e) {
+            this.log('Could not read the initial Tado presence (' + e.message + '); the switch will sync the next time it is flipped.');
+        }
     }
 
     /**
