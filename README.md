@@ -21,7 +21,7 @@ Tado's automatic geofencing (Auto-Assist) needs a paid subscription. Without one
 
 The plugin works through Tado's presence lock, the mechanism behind the Home/Away switch in the Tado app, using the [`node-tado-client`](https://github.com/mattdavis90/node-tado-client) library. On and Off set the lock (`PUT /homes/{homeId}/presenceLock`). Because it uses the presence lock rather than per-room overrides, switching back to Home simply resumes your schedule, with no leftover manual overrides to clear.
 
-It also reads the current state back from Tado regularly (every 60 seconds by default). If presence is changed in the Tado app, the switch in HomeKit follows at the next refresh.
+It reads the current state once when the plugin loads, so the switch starts out matching Tado. After that it does not poll: the switch is the source of truth for presence, so changes made in the Tado app will not show up in HomeKit. Flip the switch to bring Tado back in line.
 
 ## Requirements
 
